@@ -47,8 +47,18 @@ export default async ({ req, res, log, error }) => {
 
   try {
     // Parse request body
-    const { restaurantId, messages, model = 'claude-3-5-sonnet-20241022', max_tokens = 2000 } =
-      typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    log(`Request body type: ${typeof req.body}`);
+    log(`Request body: ${JSON.stringify(req.body)}`);
+
+    let body;
+    try {
+      body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    } catch (parseErr) {
+      error(`Failed to parse request body: ${parseErr.message}`);
+      return res.json({ error: 'Invalid JSON in request body' }, 400, corsHeaders);
+    }
+
+    const { restaurantId, messages, model = 'claude-3-5-sonnet-20241022', max_tokens = 2000 } = body || {};
 
     // Validate input
     if (!restaurantId) {
