@@ -1,0 +1,16 @@
+{
+  "name": "claude-proxy",
+  "version": "1.0.0",
+  "description": "Secure proxy for Claude API - fetches API key from restaurant settings",
+  "main": "src/main.js",
+  "type": "module",
+  "scripts": {
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "node-appwrite": "^13.0.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.0.0"
+  }
+}
