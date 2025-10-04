@@ -91,8 +91,11 @@ export default async ({ req, res, log, error }) => {
     // Parse settings to get API key
     let apiKey;
     try {
+      log(`Restaurant settings (raw): ${restaurant.settings}`);
       const settings = restaurant.settings ? JSON.parse(restaurant.settings) : {};
+      log(`Parsed settings: ${JSON.stringify(settings)}`);
       apiKey = settings.claudeApiKey;
+      log(`Extracted API key: ${apiKey ? apiKey.substring(0, 10) + '...' : 'none'}`);
     } catch (parseError) {
       error(`Failed to parse restaurant settings: ${parseError.message}`);
       return res.json({ error: 'Invalid restaurant settings format' }, 500);
@@ -100,7 +103,7 @@ export default async ({ req, res, log, error }) => {
 
     // Validate API key exists and has correct format
     if (!apiKey || typeof apiKey !== 'string' || !apiKey.startsWith('sk-ant-')) {
-      error('No valid Claude API key configured for this restaurant');
+      error(`No valid Claude API key configured for this restaurant. Key type: ${typeof apiKey}, starts with sk-ant: ${apiKey?.startsWith('sk-ant-')}`);
       return res.json({
         error: 'No Claude API key configured. Please add one in Settings → Analytics AI'
       }, 400);
