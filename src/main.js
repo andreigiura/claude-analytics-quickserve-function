@@ -67,7 +67,7 @@ export default async ({ req, res, log, error }) => {
       return res.json({ error: 'Invalid JSON in request body' }, 400, corsHeaders);
     }
 
-    const { restaurantId, messages, model = 'claude-3-5-sonnet-20241022', max_tokens = 2000 } = body || {};
+    const { restaurantId, analyticsData } = body || {};
 
     // Validate input
     if (!restaurantId) {
@@ -75,9 +75,9 @@ export default async ({ req, res, log, error }) => {
       return res.json({ error: 'restaurantId is required' }, 400, corsHeaders);
     }
 
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      error('Invalid or missing messages');
-      return res.json({ error: 'messages array is required' }, 400, corsHeaders);
+    if (!analyticsData) {
+      error('Missing analyticsData');
+      return res.json({ error: 'analyticsData is required' }, 400, corsHeaders);
     }
 
     // Initialize Appwrite client
@@ -183,7 +183,10 @@ export default async ({ req, res, log, error }) => {
 
     log('Calling Claude API...');
 
-    // Call Claude API
+    // Generate prompt server-side (never trust client input for prompts)
+    const prompt = generateAnalyticsPrompt(analyticsData);
+
+    // Call Claude API with server-controlled model and settings
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -192,9 +195,9 @@ export default async ({ req, res, log, error }) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model,
-        max_tokens,
-        messages,
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }],
       }),
     });
 
@@ -230,3 +233,77 @@ export default async ({ req, res, log, error }) => {
     }, 500);
   }
 };
+
+/**
+ * Generate analytics prompt server-side for security
+ * Only accepts structured data, never raw prompt text from client
+ */
+function generateAnalyticsPrompt(data) {
+  const { productSales = [], sessionMetrics = {}, feedbackSummary = {}, feedbackComments = [], topSellerIssues } = data;
+
+  // Format product sales (limit to top 10)
+  const productsText = productSales.slice(0, 10).map((p, i) => {
+    const rating = p.averageRating ? `, ${p.averageRating.toFixed(1)}★ rating (${p.feedbackCount || 0} reviews)` : '';
+    return `${i + 1}. ${p.productName}: ${p.timesOrdered} orders, $${(p.totalRevenue || 0).toFixed(2)} revenue${rating}`;
+  }).join('\n');
+
+  // Format feedback distribution
+  const dist = feedbackSummary.ratingDistribution || {};
+  const distText = `5★(${dist[5] || 0}) 4★(${dist[4] || 0}) 3★(${dist[3] || 0}) 2★(${dist[2] || 0}) 1★(${dist[1] || 0})`;
+
+  // Format comments (limit to 20, sanitize)
+  const commentsText = feedbackComments.length > 0
+    ? `Recent Customer Comments (sample):\n${feedbackComments.slice(0, 20).map((c, i) => `${i + 1}. "${String(c).substring(0, 200)}"`).join('\n')}`
+    : '';
+
+  // Top seller issues note
+  const issuesText = topSellerIssues
+    ? `\nNOTE: "${topSellerIssues.productName}" is the top seller but has a low ${(topSellerIssues.rating || 0).toFixed(1)}★ rating. Analyze feedback comments for this item if mentioned.`
+    : '';
+
+  return `You are an expert restaurant analytics consultant. Analyze the following restaurant data from the LAST 30 DAYS and provide actionable insights. Focus on:
+
+1. Customer satisfaction patterns from feedback comments
+2. Menu item performance and quality issues
+3. Operational efficiency opportunities
+4. Revenue optimization suggestions
+
+DATA (Last 30 Days):
+Top Products:
+${productsText || 'No product data available'}
+
+Session Metrics:
+- Total Sessions: ${sessionMetrics.total || 0}
+- Avg Duration: ${(sessionMetrics.avgDuration || 0).toFixed(0)} minutes
+- Avg Revenue per Session: $${(sessionMetrics.avgRevenue || 0).toFixed(2)}
+- Avg Orders per Session: ${(sessionMetrics.avgOrdersPerSession || 0).toFixed(1)}
+
+Customer Feedback:
+- Total: ${feedbackSummary.totalFeedbacks || 0} (${feedbackSummary.hasComments || 0} with comments)
+- Average Rating: ${(feedbackSummary.averageRating || 0).toFixed(2)}★
+- Distribution: ${distText}
+
+${commentsText}
+${issuesText}
+
+INSTRUCTIONS:
+Provide 3-5 specific, actionable insights in the following JSON format:
+[
+  {
+    "severity": "critical|warning|info",
+    "category": "quality|revenue|operations|satisfaction",
+    "message": "Concise insight message with specific data points and actionable recommendation",
+    "impact": <number 1-10>,
+    "confidence": <number 0-1>
+  }
+]
+
+Focus on:
+- Sentiment patterns in feedback comments (recurring themes, common complaints/praise)
+- Non-obvious correlations or patterns in the data
+- Specific product quality issues mentioned in feedback
+- Revenue opportunities or operational inefficiencies
+- Concrete next steps the restaurant can take
+
+Return ONLY the JSON array, no other text.`;
+}
