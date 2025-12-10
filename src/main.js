@@ -1,4 +1,4 @@
-import { Client, Databases } from 'node-appwrite';
+import { Client, Databases, Users } from 'node-appwrite';
 
 /**
  * Appwrite Function: Claude API Proxy
@@ -87,28 +87,35 @@ export default async ({ req, res, log, error }) => {
       .setKey(process.env.APPWRITE_API_KEY);
 
     const databases = new Databases(client);
+    const usersService = new Users(client);
 
     log(`Fetching user ${userId} to validate subscription...`);
 
-    // Fetch user document to check subscription
+    // Fetch user from Appwrite Auth to check labels
     let userDoc;
     try {
-      userDoc = await databases.getDocument(
-        'main_database',
-        'users',
-        userId
-      );
+      log(`Attempting to fetch user with ID: ${userId}`);
+      log(`Using endpoint: ${process.env.APPWRITE_FUNCTION_API_ENDPOINT}`);
+      log(`Using project: ${process.env.APPWRITE_FUNCTION_PROJECT_ID}`);
+      log(`API key present: ${!!process.env.APPWRITE_API_KEY}`);
+      userDoc = await usersService.get(userId);
+      log(`User fetched successfully: ${userDoc.$id}`);
     } catch (err) {
       error(`Failed to fetch user: ${err.message}`);
-      return res.json({ error: 'User not found' }, 404, corsHeaders);
+      error(`Error code: ${err.code}`);
+      error(`Error type: ${err.type}`);
+      return res.json({ error: 'User not found', details: err.message }, 404, corsHeaders);
     }
 
-    // Validate subscription
-    const subscription = userDoc.subscription;
-    const validSubscriptions = ['starter', 'growth', 'pro'];
+    // Validate subscription by checking user labels
+    const labels = userDoc.labels || [];
+    let subscription = null;
+    if (labels.includes('planstarter')) subscription = 'starter';
+    else if (labels.includes('plangrowth')) subscription = 'growth';
+    else if (labels.includes('planpro')) subscription = 'pro';
 
-    if (!subscription || !validSubscriptions.includes(subscription)) {
-      error(`User does not have valid subscription: ${subscription}`);
+    if (!subscription) {
+      error(`User does not have valid subscription. Labels: ${labels.join(', ')}`);
       return res.json({
         error: 'AI Analytics requires an active subscription',
         message: 'Please subscribe to a plan (Starter, Growth, or Pro) to use AI-powered analytics'
